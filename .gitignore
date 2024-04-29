@@ -1,0 +1,6 @@
+ffmpeg-ref/
+*.mp4
+bin/*.dll
+*.exe
+*.pdb
+FFMPEG-DOWNLOADED-LICENSE
