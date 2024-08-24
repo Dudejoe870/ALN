@@ -1,3 +1,4 @@
+//+private
 package aln
 
 import "core:c"

@@ -1,4 +1,4 @@
-// TODO: Make private, just testing for now.
+//+private
 package aln
 
 import "core:fmt"
@@ -498,7 +498,7 @@ AVCodecContext :: struct {
 		ret: ^c.int,
 		count: c.int,
 	) -> AVError,
-	profile:                    c.int, // TODO: make enum
+	profile:                    AVProfileID,
 	level:                      c.int, // TODO: make enum
 	properties:                 c.uint, // TODO: make bit_set
 	skip_loop_filter:           AVDiscard,
@@ -721,8 +721,21 @@ SwsFlagBits :: enum {
 }
 SwsFlags :: bit_set[SwsFlagBits; c.int]
 
+LossFlagBits :: enum {
+	FF_LOSS_RESOLUTION,        /**< loss due to resolution change */
+	FF_LOSS_DEPTH,             /**< loss due to color depth change */
+	FF_LOSS_COLORSPACE,        /**< loss due to color space conversion */
+	FF_LOSS_ALPHA,             /**< loss of alpha bits */
+	FF_LOSS_COLORQUANT,        /**< loss due to color quantization */
+	FF_LOSS_CHROMA,            /**< loss of chroma (e.g. RGB to gray conversion) */
+	FF_LOSS_EXCESS_RESOLUTION, /**< loss due to unneeded extra resolution */
+	FF_LOSS_EXCESS_DEPTH,      /**< loss due to unneeded extra color depth */
+}
+LossFlags :: bit_set[LossFlagBits; c.int]
+
 // TODO: maybe mostly unify this logic and make it cross-platform eventually 
 // to allow auto-downloading on other platforms like MacOS and Linux?
+// This would ensure that the correct version of FFMPEG is available.
 when ODIN_OS == .Windows {
     avcodec_find_encoder:            proc "c" (id: AVCodecID) -> ^AVCodec
     avcodec_find_encoder_by_name:    proc "c" (name: cstring) -> ^AVCodec
@@ -770,6 +783,12 @@ when ODIN_OS == .Windows {
 	 ) -> c.int
 	sws_freeContext:         proc "c" (swsContext: ^SwsContext)
     av_ts_make_time_string2: proc "c" (buf: [^]u8, ts: i64, tb: AVRational) -> cstring
+	avcodec_find_best_pix_fmt_of_list: proc "c" (
+    	pix_fmt_list: ^AVPixelFormat, src_pix_fmt: AVPixelFormat,
+    	has_alpha: c.int, loss_ptr: ^LossFlags,
+    ) -> AVPixelFormat
+
+	ffmpeg_downloaded_license_name :: "FFMPEG-DOWNLOADED-LICENSE"
 
 	/*
 	 * To comply with LGPL, we are writing our own binding code on Windows, 
@@ -784,13 +803,8 @@ when ODIN_OS == .Windows {
 	 * TODO: Is auto-downloading GPL versions of FFMPEG against the license?
 	 * If it is, it's relatively easy to just allow users to download it themselves if they desire.
 	 * Just obviously they CANNOT distribute the binaries with the GPL FFMPEG.
-	 * (I *of course* plan to add the licenses for FFMPEG with the binary distrubtion,
-	 * even if the FFMPEG DLLs don't technically come with the software. The auto-downloader
-	 * should 100% also make sure the users know about the license 
-	 * of whatever FFMPEG they are downloading, perhaps even giving them a little
-	 * NOT LEGAL ADVICE summary of the kind of terms they are subject to)
 	 */
-	@(require_results)
+	@(private, require_results)
 	init_dll :: proc() -> bool {
 		fmt.println("\x1b[35m[INITIALIZING DLLS]\x1b[0m")
 	
@@ -843,6 +857,8 @@ when ODIN_OS == .Windows {
 			couldnt_find_ffmpeg = true
 		}
 
+		default_ffmpeg_url :: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-04-28-12-48/ffmpeg-N-115020-ga9a69a5a31-win64-lgpl-shared.zip"
+		
 		if couldnt_find_ffmpeg {
 			if ok := download_ffmpeg(
 				default_ffmpeg_url,
@@ -880,19 +896,20 @@ when ODIN_OS == .Windows {
 		}
 
 		fmt.println("\x1b[35m[avcodec]\x1b[0m")
-		ok &&= load_symbol(avcodec, "avcodec_find_encoder",            &avcodec_find_encoder)
-		ok &&= load_symbol(avcodec, "avcodec_find_encoder_by_name",    &avcodec_find_encoder_by_name)
-		ok &&= load_symbol(avcodec, "avcodec_alloc_context3",          &avcodec_alloc_context3)
-		ok &&= load_symbol(avcodec, "avcodec_free_context",            &avcodec_free_context)
-		ok &&= load_symbol(avcodec, "avcodec_get_name",                &avcodec_get_name)
-		ok &&= load_symbol(avcodec, "avcodec_open2",                   &avcodec_open2)
-		ok &&= load_symbol(avcodec, "avcodec_send_frame",              &avcodec_send_frame)
-		ok &&= load_symbol(avcodec, "avcodec_parameters_from_context", &avcodec_parameters_from_context)
-		ok &&= load_symbol(avcodec, "avcodec_receive_packet",          &avcodec_receive_packet)
-		ok &&= load_symbol(avcodec, "av_packet_alloc",                 &av_packet_alloc)
-		ok &&= load_symbol(avcodec, "av_packet_free",                  &av_packet_free)
-		ok &&= load_symbol(avcodec, "av_packet_unref",                 &av_packet_unref)
-		ok &&= load_symbol(avcodec, "av_packet_rescale_ts",            &av_packet_rescale_ts)
+		ok &&= load_symbol(avcodec, "avcodec_find_encoder",              &avcodec_find_encoder)
+		ok &&= load_symbol(avcodec, "avcodec_find_encoder_by_name",      &avcodec_find_encoder_by_name)
+		ok &&= load_symbol(avcodec, "avcodec_alloc_context3",            &avcodec_alloc_context3)
+		ok &&= load_symbol(avcodec, "avcodec_free_context",              &avcodec_free_context)
+		ok &&= load_symbol(avcodec, "avcodec_get_name",                  &avcodec_get_name)
+		ok &&= load_symbol(avcodec, "avcodec_open2",                     &avcodec_open2)
+		ok &&= load_symbol(avcodec, "avcodec_send_frame",                &avcodec_send_frame)
+		ok &&= load_symbol(avcodec, "avcodec_parameters_from_context",   &avcodec_parameters_from_context)
+		ok &&= load_symbol(avcodec, "avcodec_receive_packet",            &avcodec_receive_packet)
+		ok &&= load_symbol(avcodec, "avcodec_find_best_pix_fmt_of_list", &avcodec_find_best_pix_fmt_of_list)
+		ok &&= load_symbol(avcodec, "av_packet_alloc",                   &av_packet_alloc)
+		ok &&= load_symbol(avcodec, "av_packet_free",                    &av_packet_free)
+		ok &&= load_symbol(avcodec, "av_packet_unref",                   &av_packet_unref)
+		ok &&= load_symbol(avcodec, "av_packet_rescale_ts",              &av_packet_rescale_ts)
 		if !ok {
 			return false
 		}
@@ -960,11 +977,7 @@ when ODIN_OS == .Windows {
 		fmt.println(" - \x1b[92mLoaded symbols\x1b[0m")
 		return true
 	}
-
-	ffmpeg_downloaded_license_name :: "FFMPEG-DOWNLOADED-LICENSE"
-
-	default_ffmpeg_url :: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-04-28-12-48/ffmpeg-N-115020-ga9a69a5a31-win64-lgpl-shared.zip"
-
+	
 	// Download FFMPEG using libcurl and extract the specified files
 	@(private="file")
 	download_ffmpeg :: proc(
@@ -975,8 +988,8 @@ when ODIN_OS == .Windows {
 			flags: ZipFlags,
 		},
 	) -> bool {
-				
 		fmt.println("\x1b[95m[DOWNLOADING FFMPEG]\x1b[0m")
+		fmt.printfln(" - Downloading from %s", ffmpeg_url)
 		if err := curl_global_init(CURL_GLOBAL_DEFAULT); err != .CURLE_OK {
 			fmt.eprintfln("\x1b[91mERROR:\x1b[0m Couldn't globally init libcurl, %s", curl_easy_strerror(err))
 			return false
@@ -1120,7 +1133,7 @@ when ODIN_OS == .Windows {
 } else { // when ODIN_OS == .Windows 
 	foreign import libav {"system:avcodec", "system:avutil", "system:avformat", "system:swscale"}
 	
-	@(require_results)
+	@(private, require_results)
 	init_dll :: proc() -> bool {
 		// Not necessary when not on Windows
 	}
@@ -1173,9 +1186,12 @@ when ODIN_OS == .Windows {
 		 ) -> c.int ---
 		sws_freeContext         :: proc(swsContext: ^SwsContext) ---
 	    av_ts_make_time_string2 :: proc(buf: [^]u8, ts: i64, tb: AVRational) -> cstring ---
+	    avcodec_find_best_pix_fmt_of_list :: proc(
+	    	pix_fmt_list: ^AVPixelFormat, src_pix_fmt: AVPixelFormat,
+	    	has_alpha: c.int, loss_ptr: ^LossFlags,
+	    ) -> AVPixelFormat ---
 	}
 }
-
 
 AV_ERROR_MAX_STRING_SIZE :: 64
 
